@@ -193,23 +193,23 @@ function migrate(raw) {
 
 async function loadData() {
   try {
-    if (window.storage && typeof window.storage.get === "function") {
-      const raw = await window.storage.get(STORAGE_KEY, { shared: true });
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const raw = JSON.parse(stored);
       return migrate(raw);
     }
   } catch (e) {
-    // fall through to defaults
+    console.warn("Failed to load data from localStorage:", e);
   }
   return migrate(null);
 }
 
 function persistData(data) {
   try {
-    if (window.storage && typeof window.storage.set === "function") {
-      window.storage.set(STORAGE_KEY, data, { shared: true }).catch(() => {});
-    }
+    const serialized = JSON.stringify(data);
+    localStorage.setItem(STORAGE_KEY, serialized);
   } catch (e) {
-    // swallow — keep the UI responsive even if persistence fails
+    console.warn("Failed to persist data to localStorage:", e);
   }
 }
 

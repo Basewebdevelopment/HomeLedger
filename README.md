@@ -55,10 +55,22 @@ To use the voice and receipt scanning features, you'll need to:
 
 ### Data Storage
 
-The app uses `window.storage` API for data persistence. In a browser environment without this API, data will be stored in memory only and lost on refresh. For production, you should integrate with a proper storage solution like:
-- LocalStorage (for single-device use)
-- A database with API backend (for multi-device sync)
-- Vercel KV or similar cloud storage
+✅ **Data persistence is now implemented using browser localStorage!**
+
+Your data automatically saves and persists across page refreshes. No setup required.
+
+**Features:**
+- ✅ Automatic saving on every change
+- ✅ Works completely offline
+- ✅ No account or login needed
+- ✅ Data stays on your device
+
+**Limitations:**
+- Data is per-browser (Chrome data won't sync to Firefox)
+- No multi-device sync (each device has separate data)
+- Clearing browser data will delete app data
+
+**For multi-device sync**, see STORAGE.md for upgrade options (Vercel KV, Supabase, Firebase)
 
 ## Architecture
 
