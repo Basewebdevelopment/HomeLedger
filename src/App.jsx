@@ -193,23 +193,18 @@ function migrate(raw) {
 
 async function loadData() {
   try {
-    if (window.storage && typeof window.storage.get === "function") {
-      const raw = await window.storage.get(STORAGE_KEY, { shared: true });
-      return migrate(raw);
-    }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return migrate(raw ? JSON.parse(raw) : null);
   } catch (e) {
-    // fall through to defaults
+    return migrate(null);
   }
-  return migrate(null);
 }
 
 function persistData(data) {
   try {
-    if (window.storage && typeof window.storage.set === "function") {
-      window.storage.set(STORAGE_KEY, data, { shared: true }).catch(() => {});
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
-    // swallow — keep the UI responsive even if persistence fails
+    // swallow — keep the UI responsive even if storage is full
   }
 }
 
@@ -221,7 +216,7 @@ function withActivity(data, text) {
 /* ================================ Anthropic API helpers ================================ */
 
 async function askClaude({ system, messages, maxTokens = 1024 }) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, system, messages }),
@@ -1019,6 +1014,152 @@ function TodoTab({ data, mutate, currentUser }) {
   );
 }
 
+/* ================================ DatePicker ================================ */
+
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DAY_NAMES = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+
+function DatePicker({ value, onChange }) {
+  const parsed = value ? new Date(value + "T00:00:00") : new Date();
+  const [viewYear, setViewYear] = useState(parsed.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed.getMonth());
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const selectedStr = value || "";
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
+    else setViewMonth((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
+    else setViewMonth((m) => m + 1);
+  };
+
+  // Build grid: days of viewMonth, padded to start on Monday
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7; // 0=Mon
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const selectDay = (day) => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    onChange(`${viewYear}-${mm}-${dd}`);
+    setOpen(false);
+  };
+
+  const todayD = new Date();
+  const isToday = (day) => day === todayD.getDate() && viewMonth === todayD.getMonth() && viewYear === todayD.getFullYear();
+  const isSelected = (day) => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    return selectedStr === `${viewYear}-${mm}-${dd}`;
+  };
+
+  const displayValue = value
+    ? new Date(value + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : "Pick a date";
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full rounded-lg px-3 py-2 text-sm text-left flex items-center justify-between"
+        style={{ ...inputStyle, color: value ? COLORS.ink : COLORS.inkFaint, fontFamily: FONT_DISPLAY }}
+      >
+        <span>{displayValue}</span>
+        <CalendarIcon size={15} style={{ color: COLORS.brass, flexShrink: 0 }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-50 mt-1 rounded-xl p-3 w-72"
+          style={{ background: COLORS.paper, boxShadow: "0 8px 32px rgba(27,42,50,0.16)", border: `1px solid ${COLORS.border}` }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={prevMonth} className="p-1 rounded-lg" style={{ color: COLORS.inkSoft }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <span className="text-sm font-semibold" style={{ fontFamily: FONT_DISPLAY, color: COLORS.ink }}>
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </span>
+            <button onClick={nextMonth} className="p-1 rounded-lg" style={{ color: COLORS.inkSoft }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+          </div>
+
+          {/* Day name headers */}
+          <div className="grid grid-cols-7 mb-1">
+            {DAY_NAMES.map((d) => (
+              <span key={d} className="text-center text-xs py-1" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
+                {d}
+              </span>
+            ))}
+          </div>
+
+          {/* Day cells */}
+          <div className="grid grid-cols-7 gap-y-1">
+            {cells.map((day, i) => {
+              if (!day) return <span key={`e-${i}`} />;
+              const selected = isSelected(day);
+              const today = isToday(day);
+              return (
+                <button
+                  key={day}
+                  onClick={() => selectDay(day)}
+                  className="rounded-full flex items-center justify-center mx-auto text-sm"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    fontFamily: FONT_MONO,
+                    background: selected ? COLORS.brass : today ? COLORS.brassSoft : "transparent",
+                    color: selected ? COLORS.paper : today ? COLORS.brass : COLORS.ink,
+                    fontWeight: selected || today ? 700 : 400,
+                    border: today && !selected ? `1px solid ${COLORS.brass}` : "1px solid transparent",
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-between mt-3 pt-2" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+            <button
+              onClick={() => { onChange(""); setOpen(false); }}
+              className="text-xs px-2 py-1 rounded"
+              style={{ fontFamily: FONT_MONO, color: COLORS.inkSoft }}
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => { onChange(todayStr()); setOpen(false); }}
+              className="text-xs px-2 py-1 rounded"
+              style={{ fontFamily: FONT_MONO, color: COLORS.brass, fontWeight: 700 }}
+            >
+              Today
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ================================ Calendar tab ================================ */
 
 function CalendarTab({ data, mutate, currentUser }) {
@@ -1068,7 +1209,7 @@ function CalendarTab({ data, mutate, currentUser }) {
       {showAdd && (
         <div className="rounded-lg p-3 flex flex-col gap-2" style={{ background: COLORS.paper, border: `1px solid ${COLORS.border}` }}>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Reminder title" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+          <DatePicker value={date} onChange={setDate} />
           <select value={repeat} onChange={(e) => setRepeat(e.target.value)} className="rounded-lg px-3 py-2 text-sm" style={inputStyle}>
             <option value="none">Doesn't repeat</option>
             <option value="weekly">Weekly</option>
@@ -1388,23 +1529,30 @@ function MainApp({ data, mutate, currentUser, activeTab, setActiveTab, onLogout 
         </div>
       </header>
 
-      <nav className="flex" style={{ background: COLORS.paper, borderBottom: `1px solid ${COLORS.border}` }}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className="flex-1 flex flex-col items-center gap-1 py-2"
-            style={{
-              color: activeTab === tab.id ? COLORS.brass : COLORS.inkFaint,
-              borderBottom: activeTab === tab.id ? `2px solid ${COLORS.brass}` : "2px solid transparent",
-            }}
-          >
-            <tab.icon size={18} />
-            <span className="text-xs" style={{ fontFamily: FONT_MONO }}>
+      <nav
+        className="flex gap-2 px-3 py-2 overflow-x-auto"
+        style={{ background: COLORS.paper, borderBottom: `1px solid ${COLORS.border}` }}
+      >
+        {TABS.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap flex-shrink-0 transition-all"
+              style={{
+                fontFamily: FONT_MONO,
+                background: active ? COLORS.brass : COLORS.brassSoft,
+                color: active ? COLORS.paper : COLORS.inkSoft,
+                border: `1px solid ${active ? COLORS.brass : "transparent"}`,
+                fontWeight: active ? 700 : 400,
+              }}
+            >
+              <tab.icon size={14} />
               {tab.label}
-            </span>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </nav>
 
       <main className="p-4 mx-auto" style={{ maxWidth: 640, paddingBottom: 96 }}>
