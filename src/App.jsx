@@ -702,19 +702,38 @@ function ShoppingTab({ data, mutate, currentUser }) {
       const base64 = await fileToBase64(file);
       const receipt = await scanReceiptImage(base64, file.type || "image/jpeg");
       let matchedCount = 0;
+      let addedCount = 0;
       mutate((d) => {
         let shoppingList = d.shoppingList;
         for (const receiptItem of receipt.items || []) {
+          if (!receiptItem.name) continue;
           const target = findByName(
             shoppingList.filter((i) => !i.checked),
             receiptItem.name,
             (i) => i.name
           );
           if (target) {
+            // Match found — tick it off with price
             matchedCount++;
             shoppingList = shoppingList.map((i) =>
-              i.id === target.id ? { ...i, checked: true, checkedBy: currentUser.name, checkedAt: Date.now(), matchedPrice: receiptItem.price ?? null } : i
+              i.id === target.id
+                ? { ...i, checked: true, checkedBy: currentUser.name, checkedAt: Date.now(), matchedPrice: receiptItem.price ?? null }
+                : i
             );
+          } else {
+            // No match — add it as a new checked item so the purchase is recorded
+            addedCount++;
+            shoppingList = [
+              ...shoppingList,
+              {
+                id: uid(),
+                name: receiptItem.name,
+                checked: true,
+                checkedBy: currentUser.name,
+                checkedAt: Date.now(),
+                matchedPrice: receiptItem.price ?? null,
+              },
+            ];
           }
         }
         const receiptEntry = {
@@ -725,14 +744,23 @@ function ShoppingTab({ data, mutate, currentUser }) {
           itemCount: (receipt.items || []).length,
           scannedAt: Date.now(),
         };
+        const parts = [];
+        if (matchedCount > 0) parts.push(`${matchedCount} matched`);
+        if (addedCount > 0) parts.push(`${addedCount} added`);
+        const summary = parts.length ? parts.join(", ") : "no items";
         return withActivity(
           { ...d, shoppingList, receipts: [...d.receipts, receiptEntry] },
-          `${currentUser.name} scanned a receipt from ${receiptEntry.store} (${matchedCount} item${matchedCount === 1 ? "" : "s"} matched)`
+          `${currentUser.name} scanned a receipt from ${receiptEntry.store} (${summary})`
         );
       });
       setLastReceipt(receipt);
     } catch (err) {
-      setScanError("Couldn't read that receipt — try a clearer photo.");
+      const msg = err?.message || "";
+      if (msg.includes("500") || msg.includes("API key") || msg.includes("API error")) {
+        setScanError("Server error — check the API key is set in Railway variables.");
+      } else {
+        setScanError("Couldn't read that receipt — try a clearer photo.");
+      }
     } finally {
       setScanning(false);
     }
