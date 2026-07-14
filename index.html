@@ -2,12 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#FAF9F5" />
     <title>Our Household Ledger</title>
     <style>
-      body {
+      html, body {
         margin: 0;
         padding: 0;
+        overflow-x: hidden;
+        width: 100%;
+      }
+      body {
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      * {
+        -webkit-overflow-scrolling: touch;
       }
     </style>
   </head>

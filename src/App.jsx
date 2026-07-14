@@ -48,8 +48,19 @@ const FONT_MONO = "'Space Mono', monospace";
 const FONT_STYLE_BLOCK = `
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Space+Mono:wght@400;700&display=swap');
   * { box-sizing: border-box; }
-  body { -webkit-font-smoothing: antialiased; }
-  input, select { outline: none; font-family: inherit; }
+  body { 
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  input, select { 
+    outline: none; 
+    font-family: inherit;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+  button {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: rgba(27,42,50,0.15); border-radius: 8px; }
 `;
@@ -335,19 +346,22 @@ function LoadingScreen() {
 function Stamp({ label = "DONE", sub }) {
   return (
     <div
-      className="inline-flex flex-col items-center justify-center px-3 py-1 rounded"
+      className="inline-flex flex-col items-center justify-center px-2 py-1 rounded"
       style={{
         border: `2px solid ${COLORS.stamp}`,
         boxShadow: `0 0 0 2px ${COLORS.paper}, 0 0 0 3px ${COLORS.stamp}`,
         color: COLORS.stamp,
         transform: "rotate(-6deg)",
         fontFamily: FONT_MONO,
-        letterSpacing: "0.08em",
+        letterSpacing: "0.05em",
+        minWidth: 50,
       }}
     >
-      <span className="text-xs font-bold uppercase">{label}</span>
+      <span className="text-xs font-bold uppercase whitespace-nowrap" style={{ fontSize: "10px" }}>
+        {label}
+      </span>
       {sub && (
-        <span className="uppercase opacity-80" style={{ fontSize: "10px" }}>
+        <span className="uppercase opacity-80 whitespace-nowrap" style={{ fontSize: "9px", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }}>
           {sub}
         </span>
       )}
@@ -421,9 +435,9 @@ function LoginGate({ members, onLogin, onAddMember, onRemoveMember }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: COLORS.cream }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: COLORS.cream }}>
       <div
-        className="w-full rounded-2xl p-6 flex flex-col gap-4"
+        className="w-full rounded-2xl p-5 flex flex-col gap-4"
         style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, maxWidth: 420 }}
       >
         <div className="text-center">
@@ -459,15 +473,15 @@ function LoginGate({ members, onLogin, onAddMember, onRemoveMember }) {
             <div className="flex gap-2">
               <button
                 onClick={() => setPinTarget(null)}
-                className="flex-1 rounded-lg px-3 py-2 text-sm"
-                style={{ border: `1px solid ${COLORS.border}`, color: COLORS.inkSoft }}
+                className="flex-1 rounded-lg px-3 text-sm"
+                style={{ border: `1px solid ${COLORS.border}`, color: COLORS.inkSoft, minHeight: 44 }}
               >
                 Back
               </button>
               <button
                 onClick={submitPin}
-                className="flex-1 rounded-lg px-3 py-2 text-sm"
-                style={{ background: COLORS.ink, color: COLORS.paper }}
+                className="flex-1 rounded-lg px-3 text-sm"
+                style={{ background: COLORS.ink, color: COLORS.paper, minHeight: 44 }}
               >
                 Enter
               </button>
@@ -492,7 +506,10 @@ function LoginGate({ members, onLogin, onAddMember, onRemoveMember }) {
                     <span style={{ fontFamily: FONT_DISPLAY }}>{m.name}</span>
                     {m.pin && <Lock size={13} style={{ color: COLORS.inkFaint, marginLeft: "auto" }} />}
                   </button>
-                  <button onClick={() => onRemoveMember(m.id)} style={{ color: COLORS.inkFaint }}>
+                  <button 
+                    onClick={() => onRemoveMember(m.id)} 
+                    style={{ color: COLORS.inkFaint, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -525,8 +542,8 @@ function LoginGate({ members, onLogin, onAddMember, onRemoveMember }) {
                 />
                 <button
                   onClick={submitAdd}
-                  className="rounded-lg px-3 py-2 text-sm"
-                  style={{ background: COLORS.brass, color: COLORS.paper }}
+                  className="rounded-lg px-3 text-sm"
+                  style={{ background: COLORS.brass, color: COLORS.paper, minHeight: 44 }}
                 >
                   Join household
                 </button>
@@ -534,8 +551,8 @@ function LoginGate({ members, onLogin, onAddMember, onRemoveMember }) {
             ) : (
               <button
                 onClick={() => setShowAdd(true)}
-                className="rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2"
-                style={{ border: `1px dashed ${COLORS.border}`, color: COLORS.inkSoft }}
+                className="rounded-lg px-3 text-sm flex items-center justify-center gap-2"
+                style={{ border: `1px dashed ${COLORS.border}`, color: COLORS.inkSoft, minHeight: 44 }}
               >
                 <Plus size={16} /> Add someone new
               </button>
@@ -620,10 +637,14 @@ function HomeTab({ data }) {
 function ShoppingRow({ item, onToggle, onRemove }) {
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-lg p-3"
+      className="flex items-start gap-2 rounded-lg p-3"
       style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
     >
-      <button onClick={onToggle} className="flex items-center gap-3 flex-1 text-left">
+      <button 
+        onClick={onToggle} 
+        className="flex items-start gap-3 flex-1 text-left min-w-0"
+        style={{ minHeight: 44, paddingTop: 2 }}
+      >
         <span
           className="rounded flex items-center justify-center"
           style={{
@@ -632,22 +653,37 @@ function ShoppingRow({ item, onToggle, onRemove }) {
             border: `2px solid ${item.checked ? COLORS.stamp : COLORS.inkFaint}`,
             background: item.checked ? COLORS.stamp : "transparent",
             flexShrink: 0,
+            marginTop: 2,
           }}
         >
           {item.checked && <Check size={14} color={COLORS.paper} />}
         </span>
-        <span style={{ textDecoration: item.checked ? "line-through" : "none", color: item.checked ? COLORS.inkFaint : COLORS.ink }}>
+        <span 
+          style={{ 
+            textDecoration: item.checked ? "line-through" : "none", 
+            color: item.checked ? COLORS.inkFaint : COLORS.ink,
+            wordBreak: "break-word",
+            overflowWrap: "break-word",
+          }}
+        >
           {item.name}
         </span>
       </button>
-      <div className="flex items-center gap-2">
-        {item.checked && item.matchedPrice != null && (
-          <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.brass }}>
-            {fmtMoney(item.matchedPrice)}
-          </span>
+      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+        {item.checked && (
+          <div className="flex flex-col items-end gap-1">
+            {item.matchedPrice != null && (
+              <span className="text-xs whitespace-nowrap" style={{ fontFamily: FONT_MONO, color: COLORS.brass }}>
+                {fmtMoney(item.matchedPrice)}
+              </span>
+            )}
+            <Stamp label="Got it" sub={item.checkedBy} />
+          </div>
         )}
-        {item.checked && <Stamp label="Got it" sub={item.checkedBy} />}
-        <button onClick={onRemove} style={{ color: COLORS.inkFaint }}>
+        <button 
+          onClick={onRemove} 
+          style={{ color: COLORS.inkFaint, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
           <Trash2 size={16} />
         </button>
       </div>
@@ -754,10 +790,14 @@ function ShoppingTab({ data, mutate, currentUser }) {
           onChange={(e) => setNewItem(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addItem()}
           placeholder="Add an item..."
-          className="flex-1 rounded-lg px-3 py-2 text-sm"
-          style={inputStyle}
+          className="flex-1 rounded-lg px-3"
+          style={{ ...inputStyle, minHeight: 44 }}
         />
-        <button onClick={addItem} className="rounded-lg px-3" style={{ background: COLORS.ink, color: COLORS.paper }}>
+        <button 
+          onClick={addItem} 
+          className="rounded-lg flex items-center justify-center" 
+          style={{ background: COLORS.ink, color: COLORS.paper, minWidth: 44, minHeight: 44, paddingLeft: 12, paddingRight: 12 }}
+        >
           <Plus size={18} />
         </button>
       </div>
@@ -766,8 +806,8 @@ function ShoppingTab({ data, mutate, currentUser }) {
         <button
           onClick={() => fileInputRef.current && fileInputRef.current.click()}
           disabled={scanning}
-          className="flex-1 rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2"
-          style={{ background: COLORS.brassSoft, color: COLORS.brass, border: `1px solid ${COLORS.border}` }}
+          className="flex-1 rounded-lg px-3 text-sm flex items-center justify-center gap-2"
+          style={{ background: COLORS.brassSoft, color: COLORS.brass, border: `1px solid ${COLORS.border}`, minHeight: 44 }}
         >
           {scanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
           {scanning ? "Reading receipt..." : "Scan receipt"}
@@ -775,8 +815,8 @@ function ShoppingTab({ data, mutate, currentUser }) {
         {checked.length > 0 && (
           <button
             onClick={clearTicked}
-            className="rounded-lg px-3 py-2 text-sm"
-            style={{ border: `1px solid ${COLORS.border}`, color: COLORS.inkSoft }}
+            className="rounded-lg px-3 text-sm whitespace-nowrap"
+            style={{ border: `1px solid ${COLORS.border}`, color: COLORS.inkSoft, minHeight: 44 }}
           >
             Clear ticked
           </button>
@@ -856,8 +896,8 @@ function CleaningTab({ data, mutate, currentUser }) {
     <div className="flex flex-col gap-3">
       <button
         onClick={() => setShowAdd((s) => !s)}
-        className="rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2"
-        style={{ background: COLORS.ink, color: COLORS.paper }}
+        className="rounded-lg px-3 text-sm flex items-center justify-center gap-2"
+        style={{ background: COLORS.ink, color: COLORS.paper, minHeight: 44 }}
       >
         <Plus size={16} /> Add task
       </button>
@@ -870,7 +910,7 @@ function CleaningTab({ data, mutate, currentUser }) {
             <option value="biweekly">Biweekly</option>
             <option value="monthly">Monthly</option>
           </select>
-          <button onClick={addTask} className="rounded-lg px-3 py-2 text-sm" style={{ background: COLORS.brass, color: COLORS.paper }}>
+          <button onClick={addTask} className="rounded-lg px-3 text-sm" style={{ background: COLORS.brass, color: COLORS.paper, minHeight: 44 }}>
             Save
           </button>
         </div>
@@ -901,11 +941,14 @@ function CleaningTab({ data, mutate, currentUser }) {
               {status === "done" ? (
                 <Stamp label="Done" sub={task.lastDoneBy} />
               ) : (
-                <button onClick={() => markDone(task)} className="rounded-lg px-3 py-1.5 text-xs" style={{ background: COLORS.brassSoft, color: COLORS.brass }}>
+                <button onClick={() => markDone(task)} className="rounded-lg px-3 text-xs whitespace-nowrap" style={{ background: COLORS.brassSoft, color: COLORS.brass, minHeight: 36 }}>
                   Mark done
                 </button>
               )}
-              <button onClick={() => removeTask(task)} style={{ color: COLORS.inkFaint }}>
+              <button 
+                onClick={() => removeTask(task)} 
+                style={{ color: COLORS.inkFaint, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
                 <Trash2 size={16} />
               </button>
             </div>
@@ -922,10 +965,14 @@ function CleaningTab({ data, mutate, currentUser }) {
 function TodoRow({ todo, onToggle, onRemove }) {
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-lg p-3"
+      className="flex items-start gap-2 rounded-lg p-3"
       style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
     >
-      <button onClick={onToggle} className="flex items-center gap-3 flex-1 text-left">
+      <button 
+        onClick={onToggle} 
+        className="flex items-start gap-3 flex-1 text-left min-w-0"
+        style={{ minHeight: 44, paddingTop: 2 }}
+      >
         <span
           className="rounded flex items-center justify-center"
           style={{
@@ -934,21 +981,36 @@ function TodoRow({ todo, onToggle, onRemove }) {
             border: `2px solid ${todo.done ? COLORS.stamp : COLORS.inkFaint}`,
             background: todo.done ? COLORS.stamp : "transparent",
             flexShrink: 0,
+            marginTop: 2,
           }}
         >
           {todo.done && <Check size={14} color={COLORS.paper} />}
         </span>
-        <div className="flex flex-col">
-          <span style={{ textDecoration: todo.done ? "line-through" : "none", color: todo.done ? COLORS.inkFaint : COLORS.ink }}>{todo.text}</span>
+        <div className="flex flex-col min-w-0">
+          <span 
+            style={{ 
+              textDecoration: todo.done ? "line-through" : "none", 
+              color: todo.done ? COLORS.inkFaint : COLORS.ink,
+              wordBreak: "break-word",
+              overflowWrap: "break-word",
+            }}
+          >
+            {todo.text}
+          </span>
           <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
             added by {todo.addedBy}
           </span>
         </div>
       </button>
-      {todo.done && <Stamp label="Done" sub={todo.doneBy} />}
-      <button onClick={onRemove} style={{ color: COLORS.inkFaint }}>
-        <Trash2 size={16} />
-      </button>
+      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+        {todo.done && <Stamp label="Done" sub={todo.doneBy} />}
+        <button 
+          onClick={onRemove} 
+          style={{ color: COLORS.inkFaint, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -994,10 +1056,14 @@ function TodoTab({ data, mutate, currentUser }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="Add a to-do..."
-          className="flex-1 rounded-lg px-3 py-2 text-sm"
-          style={inputStyle}
+          className="flex-1 rounded-lg px-3"
+          style={{ ...inputStyle, minHeight: 44 }}
         />
-        <button onClick={add} className="rounded-lg px-3" style={{ background: COLORS.ink, color: COLORS.paper }}>
+        <button 
+          onClick={add} 
+          className="rounded-lg flex items-center justify-center" 
+          style={{ background: COLORS.ink, color: COLORS.paper, minWidth: 44, minHeight: 44, paddingLeft: 12, paddingRight: 12 }}
+        >
           <Plus size={18} />
         </button>
       </div>
@@ -1060,8 +1126,8 @@ function CalendarTab({ data, mutate, currentUser }) {
     <div className="flex flex-col gap-3">
       <button
         onClick={() => setShowAdd((s) => !s)}
-        className="rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2"
-        style={{ background: COLORS.ink, color: COLORS.paper }}
+        className="rounded-lg px-3 text-sm flex items-center justify-center gap-2"
+        style={{ background: COLORS.ink, color: COLORS.paper, minHeight: 44 }}
       >
         <Plus size={16} /> Add reminder
       </button>
@@ -1075,7 +1141,7 @@ function CalendarTab({ data, mutate, currentUser }) {
             <option value="monthly">Monthly</option>
             <option value="yearly">Yearly</option>
           </select>
-          <button onClick={addEvent} className="rounded-lg px-3 py-2 text-sm" style={{ background: COLORS.brass, color: COLORS.paper }}>
+          <button onClick={addEvent} className="rounded-lg px-3 text-sm" style={{ background: COLORS.brass, color: COLORS.paper, minHeight: 44 }}>
             Save
           </button>
         </div>
@@ -1101,7 +1167,10 @@ function CalendarTab({ data, mutate, currentUser }) {
               </div>
             </button>
             {ev.done && <Stamp label="Done" />}
-            <button onClick={() => removeEvent(ev)} style={{ color: COLORS.inkFaint }}>
+            <button 
+              onClick={() => removeEvent(ev)} 
+              style={{ color: COLORS.inkFaint, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
               <Trash2 size={16} />
             </button>
           </div>
@@ -1272,13 +1341,29 @@ function VoiceModal({ data, mutate, currentUser, setActiveTab, onClose }) {
   const showTextFallback = !supportsSpeech || status === "error" || status === "done";
 
   return (
-    <div className="fixed inset-0 flex items-end justify-center z-50" style={{ background: "rgba(27,42,50,0.4)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl p-5 flex flex-col gap-3" style={{ background: COLORS.paper, maxWidth: 640 }}>
+    <div 
+      className="fixed inset-0 flex items-end justify-center z-50" 
+      style={{ background: "rgba(27,42,50,0.4)" }} 
+      onClick={onClose}
+    >
+      <div 
+        onClick={(e) => e.stopPropagation()} 
+        className="w-full rounded-t-2xl p-5 flex flex-col gap-3" 
+        style={{ 
+          background: COLORS.paper, 
+          maxWidth: 640,
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
+      >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: FONT_DISPLAY }}>
             Voice command
           </h3>
-          <button onClick={onClose}>
+          <button 
+            onClick={onClose}
+            style={{ minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
             <X size={20} />
           </button>
         </div>
@@ -1344,7 +1429,18 @@ function VoiceFab({ data, mutate, currentUser, setActiveTab }) {
       <button
         onClick={() => setOpen(true)}
         className="fixed rounded-full flex items-center justify-center"
-        style={{ bottom: 24, right: 20, width: 56, height: 56, background: COLORS.stamp, color: COLORS.paper, boxShadow: CARD_SHADOW, zIndex: 40 }}
+        style={{ 
+          bottom: 20, 
+          right: 16, 
+          width: 56, 
+          height: 56, 
+          background: COLORS.stamp, 
+          color: COLORS.paper, 
+          boxShadow: CARD_SHADOW, 
+          zIndex: 40,
+          touchAction: "manipulation",
+        }}
+        aria-label="Voice command"
       >
         <Mic size={22} />
       </button>
@@ -1365,49 +1461,68 @@ function VoiceFab({ data, mutate, currentUser, setActiveTab }) {
 
 function MainApp({ data, mutate, currentUser, activeTab, setActiveTab, onLogout }) {
   return (
-    <div className="min-h-screen w-full" style={{ background: COLORS.cream, color: COLORS.ink }}>
+    <div className="min-h-screen w-full" style={{ background: COLORS.cream, color: COLORS.ink, overflowX: "hidden" }}>
       <header
-        className="sticky top-0 flex items-center justify-between px-4 py-3"
+        className="sticky top-0 flex items-center justify-between px-3 py-3"
         style={{ background: COLORS.paper, borderBottom: `1px solid ${COLORS.border}`, zIndex: 20 }}
       >
-        <div className="flex items-center gap-2">
-          <div className="rounded-lg flex items-center justify-center" style={{ width: 36, height: 36, background: COLORS.brassSoft }}>
-            <BookOpen size={18} style={{ color: COLORS.brass }} />
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 32, height: 32, background: COLORS.brassSoft }}>
+            <BookOpen size={16} style={{ color: COLORS.brass }} />
           </div>
-          <h1 className="text-lg font-semibold leading-none" style={{ fontFamily: FONT_DISPLAY }}>
+          <h1 
+            className="font-semibold leading-tight truncate" 
+            style={{ 
+              fontFamily: FONT_DISPLAY,
+              fontSize: "clamp(14px, 4vw, 18px)",
+            }}
+          >
             Our Household Ledger
           </h1>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm" style={{ fontFamily: FONT_MONO, color: COLORS.inkSoft }}>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span 
+            className="text-sm truncate" 
+            style={{ 
+              fontFamily: FONT_MONO, 
+              color: COLORS.inkSoft,
+              maxWidth: 80,
+            }}
+          >
             {currentUser.name}
           </span>
-          <button onClick={onLogout} className="p-2 rounded-lg" style={{ color: COLORS.inkSoft }}>
+          <button 
+            onClick={onLogout} 
+            className="rounded-lg flex items-center justify-center" 
+            style={{ color: COLORS.inkSoft, minWidth: 44, minHeight: 44 }}
+          >
             <LogOut size={18} />
           </button>
         </div>
       </header>
 
-      <nav className="flex" style={{ background: COLORS.paper, borderBottom: `1px solid ${COLORS.border}` }}>
+      <nav className="flex" style={{ background: COLORS.paper, borderBottom: `1px solid ${COLORS.border}`, overflowX: "auto" }}>
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className="flex-1 flex flex-col items-center gap-1 py-2"
+            className="flex-1 flex flex-col items-center gap-1 py-3 px-2"
             style={{
               color: activeTab === tab.id ? COLORS.brass : COLORS.inkFaint,
               borderBottom: activeTab === tab.id ? `2px solid ${COLORS.brass}` : "2px solid transparent",
+              minWidth: 60,
+              minHeight: 44,
             }}
           >
             <tab.icon size={18} />
-            <span className="text-xs" style={{ fontFamily: FONT_MONO }}>
+            <span className="text-xs leading-tight" style={{ fontFamily: FONT_MONO, fontSize: "10px" }}>
               {tab.label}
             </span>
           </button>
         ))}
       </nav>
 
-      <main className="p-4 mx-auto" style={{ maxWidth: 640, paddingBottom: 96 }}>
+      <main className="p-3 mx-auto w-full" style={{ maxWidth: 640, paddingBottom: 100, boxSizing: "border-box" }}>
         {activeTab === "home" && <HomeTab data={data} />}
         {activeTab === "shopping" && <ShoppingTab data={data} mutate={mutate} currentUser={currentUser} />}
         {activeTab === "cleaning" && <CleaningTab data={data} mutate={mutate} currentUser={currentUser} />}
