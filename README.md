@@ -12,6 +12,8 @@ A beautiful, collaborative household management app for tracking shopping lists,
 - 🎤 **Voice commands** for hands-free use
 - 📸 **Receipt scanning** with AI to auto-match shopping items
 - 📊 **Activity feed** to track who did what
+- 📱 **Mobile-optimized** with proper touch targets and responsive design
+- 💾 **Data persistence** with automatic localStorage saving
 
 ## Quick Start
 

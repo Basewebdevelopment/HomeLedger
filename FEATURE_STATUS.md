@@ -50,8 +50,18 @@
   - Paper texture with brass accents
   - Stamp effects for completed items
   - Custom typography (Fraunces & Space Mono)
-  - Responsive mobile-first layout
+  - Fully responsive mobile-first layout
   - Smooth animations
+  - Mobile-optimized (see MOBILE_OPTIMIZATION.md)
+
+- ✅ **Mobile Optimization**
+  - 44x44px touch targets throughout
+  - No horizontal scrolling on any screen size
+  - Proper text wrapping for long content
+  - iOS PWA support (add to home screen)
+  - Responsive typography with clamp()
+  - Touch-friendly spacing and buttons
+  - Works on screens from 320px to desktop
 
 ## ⚠️ Partially Implemented (Needs Configuration)
 
