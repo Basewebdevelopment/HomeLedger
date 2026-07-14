@@ -123,6 +123,18 @@ function cleaningStatus(task, now = Date.now()) {
   return "done";
 }
 
+// When a cleaning task is next due, based on when it was last done + its frequency.
+// Returns a Date, or null if it's never been done (so it's due now).
+function cleaningDueDate(task) {
+  if (!task.lastDone) return null;
+  const windowDays = FREQUENCY_DAYS[task.frequency] ?? 7;
+  return new Date(task.lastDone + windowDays * 86400000);
+}
+
+function fmtDate(d) {
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
 function rollForward(dateStr, repeat) {
   const d = new Date(dateStr + "T00:00:00");
   if (repeat === "weekly") d.setDate(d.getDate() + 7);
@@ -149,7 +161,20 @@ function emptyData() {
 }
 
 function seedCleaningTasks() {
-  return ["Kitchen", "Bathroom", "Floors", "Bedsheets", "Laundry", "Bins"].map((name) => ({
+  return [
+    "Kitchen clean",
+    "Bathroom clean",
+    "Toilet clean",
+    "Hoovering / floors",
+    "Mopping",
+    "Dusting",
+    "Change bedsheets",
+    "Laundry",
+    "Take out bins",
+    "Dishes / dishwasher",
+    "Windows",
+    "Clean fridge",
+  ].map((name) => ({
     id: uid(),
     name,
     frequency: "weekly",
@@ -938,6 +963,8 @@ function CleaningTab({ data, mutate, currentUser }) {
       )}
       {data.cleaningTasks.map((task) => {
         const status = cleaningStatus(task);
+        const due = cleaningDueDate(task);
+        const dueLabel = due ? `due ${fmtDate(due)}` : "due now";
         return (
           <div
             key={task.id}
@@ -954,7 +981,7 @@ function CleaningTab({ data, mutate, currentUser }) {
                 {task.name}
               </span>
               <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
-                {task.frequency} · {STATUS_LABEL[status]}
+                {task.frequency} · {STATUS_LABEL[status]} · {dueLabel}
                 {task.lastDoneBy ? ` · last by ${task.lastDoneBy}` : ""}
               </span>
             </div>
