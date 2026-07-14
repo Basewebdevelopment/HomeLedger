@@ -24,6 +24,7 @@ import {
   Loader2,
   AlertCircle,
   BookOpen,
+  Package,
 } from "lucide-react";
 
 /* ================================ design tokens ================================ */
@@ -57,6 +58,7 @@ const FONT_STYLE_BLOCK = `
 
 const TABS = [
   { id: "home", label: "Home", icon: Home },
+  { id: "pantry", label: "Pantry", icon: Package },
   { id: "shopping", label: "Shopping", icon: ShoppingCart },
   { id: "cleaning", label: "Cleaning", icon: Sparkles },
   { id: "todo", label: "To-do", icon: CheckSquare },
@@ -199,6 +201,33 @@ function makeShoppingItem(name, extra = {}) {
   };
 }
 
+/* ---- pantry / home inventory ---- */
+
+// Ordered so cycling goes in → low → out → in.
+const PANTRY_STATUSES = ["in", "low", "out"];
+
+const PANTRY_STATUS_META = {
+  in: { label: "In stock", short: "In", color: COLORS.success },
+  low: { label: "Running low", short: "Low", color: COLORS.brass },
+  out: { label: "Out", short: "Out", color: COLORS.stamp },
+};
+
+// Items that are low or out need buying.
+function pantryNeedsBuying(item) {
+  return item.status === "low" || item.status === "out";
+}
+
+function makePantryItem(name, extra = {}) {
+  return {
+    id: uid(),
+    name,
+    category: categorize(name),
+    status: "in",
+    updatedAt: Date.now(),
+    ...extra,
+  };
+}
+
 function rollForward(dateStr, repeat) {
   const d = new Date(dateStr + "T00:00:00");
   if (repeat === "weekly") d.setDate(d.getDate() + 7);
@@ -221,7 +250,7 @@ function eventIconFor(title) {
 /* ================================ data model ================================ */
 
 function emptyData() {
-  return { members: [], shoppingList: [], cleaningTasks: [], todos: [], events: [], receipts: [], activity: [] };
+  return { members: [], pantry: [], shoppingList: [], cleaningTasks: [], todos: [], events: [], receipts: [], activity: [] };
 }
 
 function seedCleaningTasks() {
@@ -272,6 +301,14 @@ function migrate(raw) {
         category: i.category ?? categorize(i.name),
         estPrice: i.estPrice ?? null,
         ...i,
+      }))
+    : [];
+  data.pantry = Array.isArray(data.pantry)
+    ? data.pantry.map((p) => ({
+        status: p.status ?? "in",
+        category: p.category ?? categorize(p.name),
+        updatedAt: p.updatedAt ?? Date.now(),
+        ...p,
       }))
     : [];
   data.todos = Array.isArray(data.todos) ? data.todos : [];
@@ -744,6 +781,168 @@ function HomeTab({ data }) {
   );
 }
 
+/* ================================ Pantry tab ================================ */
+
+function PantryStatusControl({ status, onSet }) {
+  return (
+    <div className="flex items-center gap-1">
+      {PANTRY_STATUSES.map((s) => {
+        const meta = PANTRY_STATUS_META[s];
+        const active = status === s;
+        return (
+          <button
+            key={s}
+            onClick={() => onSet(s)}
+            className="rounded-full px-2 py-1 text-xs"
+            style={{
+              fontFamily: FONT_MONO,
+              background: active ? meta.color : "transparent",
+              color: active ? COLORS.paper : COLORS.inkFaint,
+              border: `1px solid ${active ? meta.color : COLORS.border}`,
+              fontWeight: active ? 700 : 400,
+            }}
+          >
+            {meta.short}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PantryTab({ data, mutate, currentUser }) {
+  const [newItem, setNewItem] = useState("");
+
+  const addItem = (rawName) => {
+    const name = (rawName ?? newItem).trim();
+    if (!name) return;
+    mutate((d) => {
+      const exists = d.pantry.some((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (exists) return d;
+      return withActivity(
+        { ...d, pantry: [...d.pantry, makePantryItem(name)] },
+        `${currentUser.name} added "${name}" to the pantry`
+      );
+    });
+    if (rawName == null) setNewItem("");
+  };
+
+  const setStatus = (item, status) => {
+    if (item.status === status) return;
+    mutate((d) => {
+      const pantry = d.pantry.map((p) => (p.id === item.id ? { ...p, status, updatedAt: Date.now() } : p));
+      const meta = PANTRY_STATUS_META[status];
+      return withActivity({ ...d, pantry }, `${currentUser.name} marked "${item.name}" ${meta.label.toLowerCase()}`);
+    });
+  };
+
+  const removeItem = (item) => {
+    mutate((d) => withActivity({ ...d, pantry: d.pantry.filter((p) => p.id !== item.id) }, `${currentUser.name} removed "${item.name}" from the pantry`));
+  };
+
+  const needCount = data.pantry.filter(pantryNeedsBuying).length;
+
+  const grouped = SHOPPING_CATEGORIES.map((cat) => ({
+    cat,
+    items: data.pantry.filter((p) => (p.category || "Other") === cat),
+  })).filter((g) => g.items.length > 0);
+  const showCategoryHeaders = grouped.length > 1;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <input
+          value={newItem}
+          onChange={(e) => setNewItem(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addItem()}
+          placeholder="Add something you keep at home..."
+          className="flex-1 rounded-lg px-3 py-2 text-sm"
+          style={inputStyle}
+        />
+        <button onClick={() => addItem()} className="rounded-lg px-3" style={{ background: COLORS.ink, color: COLORS.paper }}>
+          <Plus size={18} />
+        </button>
+      </div>
+
+      {/* Quick-add staples */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs uppercase" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint, letterSpacing: "0.05em" }}>
+          Quick add
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {STAPLES.map((name) => (
+            <button
+              key={name}
+              onClick={() => addItem(name)}
+              className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs"
+              style={{ background: COLORS.brassSoft, color: COLORS.brass, border: `1px solid ${COLORS.border}`, fontFamily: FONT_MONO }}
+            >
+              <Plus size={11} /> {name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {data.pantry.length > 0 && (
+        <div
+          className="rounded-xl p-4 flex items-center justify-between"
+          style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
+        >
+          <div className="flex flex-col">
+            <span className="text-xs uppercase" style={{ fontFamily: FONT_MONO, color: COLORS.inkSoft, letterSpacing: "0.05em" }}>
+              At home
+            </span>
+            <span className="text-2xl font-semibold" style={{ fontFamily: FONT_DISPLAY, color: COLORS.ink }}>
+              {data.pantry.length} item{data.pantry.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-xs uppercase" style={{ fontFamily: FONT_MONO, color: COLORS.inkSoft, letterSpacing: "0.05em" }}>
+              Need to buy
+            </span>
+            <span className="text-2xl font-semibold" style={{ fontFamily: FONT_DISPLAY, color: needCount > 0 ? COLORS.stamp : COLORS.success }}>
+              {needCount}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {grouped.map((group) => (
+          <div key={group.cat} className="flex flex-col gap-2">
+            {showCategoryHeaders && (
+              <div className="text-xs uppercase mt-1" style={{ fontFamily: FONT_MONO, color: COLORS.brass, letterSpacing: "0.05em" }}>
+                {group.cat}
+              </div>
+            )}
+            {group.items.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-lg p-3 flex items-center justify-between gap-2"
+                style={{
+                  background: COLORS.paper,
+                  boxShadow: CARD_SHADOW,
+                  border: `1px solid ${COLORS.border}`,
+                  borderLeft: `4px solid ${PANTRY_STATUS_META[item.status].color}`,
+                }}
+              >
+                <span style={{ fontFamily: FONT_DISPLAY, color: COLORS.ink }}>{item.name}</span>
+                <div className="flex items-center gap-2">
+                  <PantryStatusControl status={item.status} onSet={(s) => setStatus(item, s)} />
+                  <button onClick={() => removeItem(item)} style={{ color: COLORS.inkFaint }}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {data.pantry.length === 0 && <EmptyState text="Your pantry is empty — add what you keep at home." />}
+      </div>
+    </div>
+  );
+}
+
 /* ================================ Shopping tab ================================ */
 
 function QtyStepper({ qty, onSetQty }) {
@@ -886,6 +1085,14 @@ function ShoppingTab({ data, mutate, currentUser }) {
     mutate((d) => ({ ...d, shoppingList: d.shoppingList.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
   };
 
+  // Marking a pantry-need as bought puts it back in stock.
+  const markPantryBought = (item) => {
+    mutate((d) => {
+      const pantry = d.pantry.map((p) => (p.id === item.id ? { ...p, status: "in", updatedAt: Date.now() } : p));
+      return withActivity({ ...d, pantry }, `${currentUser.name} restocked "${item.name}"`);
+    });
+  };
+
   const toggleItem = (item) => {
     mutate((d) => {
       const checked = !item.checked;
@@ -917,10 +1124,20 @@ function ShoppingTab({ data, mutate, currentUser }) {
       const receipt = await scanReceiptImage(base64, file.type || "image/jpeg");
       let matchedCount = 0;
       let addedCount = 0;
+      let restockedCount = 0;
       mutate((d) => {
         let shoppingList = d.shoppingList;
+        let pantry = d.pantry;
         for (const receiptItem of receipt.items || []) {
           if (!receiptItem.name) continue;
+
+          // If the purchase matches a pantry item that's low/out, restock it
+          const pantryTarget = findByName(pantry.filter(pantryNeedsBuying), receiptItem.name, (p) => p.name);
+          if (pantryTarget) {
+            restockedCount++;
+            pantry = pantry.map((p) => (p.id === pantryTarget.id ? { ...p, status: "in", updatedAt: Date.now() } : p));
+          }
+
           const target = findByName(
             shoppingList.filter((i) => !i.checked),
             receiptItem.name,
@@ -959,9 +1176,10 @@ function ShoppingTab({ data, mutate, currentUser }) {
         const parts = [];
         if (matchedCount > 0) parts.push(`${matchedCount} matched`);
         if (addedCount > 0) parts.push(`${addedCount} added`);
+        if (restockedCount > 0) parts.push(`${restockedCount} restocked`);
         const summary = parts.length ? parts.join(", ") : "no items";
         return withActivity(
-          { ...d, shoppingList, receipts: [...d.receipts, receiptEntry] },
+          { ...d, shoppingList, pantry, receipts: [...d.receipts, receiptEntry] },
           `${currentUser.name} scanned a receipt from ${receiptEntry.store} (${summary})`
         );
       });
@@ -980,6 +1198,9 @@ function ShoppingTab({ data, mutate, currentUser }) {
 
   const unchecked = data.shoppingList.filter((i) => !i.checked);
   const checked = data.shoppingList.filter((i) => i.checked);
+
+  // Pantry items that are low/out flow into the shopping list automatically
+  const pantryNeeds = data.pantry.filter(pantryNeedsBuying);
 
   // Budget summary for the remaining (unchecked) list
   const remainingCount = unchecked.reduce((s, i) => s + (i.qty || 1), 0);
@@ -1107,8 +1328,43 @@ function ShoppingTab({ data, mutate, currentUser }) {
         </div>
       )}
 
+      {/* Auto list from the pantry (low / out items) */}
+      {pantryNeeds.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-xs uppercase mt-1 flex items-center gap-1.5" style={{ fontFamily: FONT_MONO, color: COLORS.stamp, letterSpacing: "0.05em" }}>
+            <Package size={13} /> Need at home
+          </div>
+          {pantryNeeds.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-2 rounded-lg p-3"
+              style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${PANTRY_STATUS_META[item.status].color}` }}
+            >
+              <button onClick={() => markPantryBought(item)} className="flex items-center gap-3 flex-1 text-left">
+                <span
+                  className="rounded flex items-center justify-center"
+                  style={{ width: 20, height: 20, border: `2px solid ${COLORS.inkFaint}`, flexShrink: 0 }}
+                />
+                <span style={{ color: COLORS.ink }}>{item.name}</span>
+              </button>
+              <span
+                className="text-xs rounded-full px-2 py-0.5"
+                style={{ fontFamily: FONT_MONO, color: PANTRY_STATUS_META[item.status].color, border: `1px solid ${PANTRY_STATUS_META[item.status].color}` }}
+              >
+                {PANTRY_STATUS_META[item.status].label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Remaining items, grouped by category */}
       <div className="flex flex-col gap-2">
+        {grouped.length > 0 && pantryNeeds.length > 0 && (
+          <div className="text-xs uppercase mt-1" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint, letterSpacing: "0.05em" }}>
+            Extras
+          </div>
+        )}
         {grouped.map((group) => (
           <div key={group.cat} className="flex flex-col gap-2">
             {showCategoryHeaders && (
@@ -1127,7 +1383,9 @@ function ShoppingTab({ data, mutate, currentUser }) {
         )}
         {checked.map(renderRow)}
 
-        {data.shoppingList.length === 0 && <EmptyState text="Shopping list is empty." />}
+        {data.shoppingList.length === 0 && pantryNeeds.length === 0 && (
+          <EmptyState text="Nothing to buy — mark pantry items Low or Out and they'll show up here." />
+        )}
       </div>
     </div>
   );
@@ -1879,6 +2137,7 @@ function MainApp({ data, mutate, currentUser, activeTab, setActiveTab, onLogout 
 
       <main className="p-4 mx-auto" style={{ maxWidth: 640, paddingBottom: 96 }}>
         {activeTab === "home" && <HomeTab data={data} />}
+        {activeTab === "pantry" && <PantryTab data={data} mutate={mutate} currentUser={currentUser} />}
         {activeTab === "shopping" && <ShoppingTab data={data} mutate={mutate} currentUser={currentUser} />}
         {activeTab === "cleaning" && <CleaningTab data={data} mutate={mutate} currentUser={currentUser} />}
         {activeTab === "todo" && <TodoTab data={data} mutate={mutate} currentUser={currentUser} />}
