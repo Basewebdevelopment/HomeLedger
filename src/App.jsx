@@ -8,6 +8,7 @@ import {
   Mic,
   Camera,
   Plus,
+  Minus,
   Trash2,
   X,
   Check,
@@ -135,6 +136,69 @@ function fmtDate(d) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+/* ---- shopping categorisation & staples ---- */
+
+// Display order for grouped shopping categories.
+const SHOPPING_CATEGORIES = [
+  "Produce",
+  "Dairy & Eggs",
+  "Meat & Fish",
+  "Bakery",
+  "Frozen",
+  "Drinks",
+  "Snacks",
+  "Pantry",
+  "Household",
+  "Toiletries",
+  "Other",
+];
+
+// Keyword → category. Longer/more specific phrases should win, so we sort
+// matches by keyword length when categorising.
+const CATEGORY_KEYWORDS = {
+  "Produce": ["apple", "banana", "tomato", "potato", "onion", "carrot", "lettuce", "salad", "spinach", "pepper", "cucumber", "garlic", "lemon", "lime", "orange", "grape", "berry", "strawberr", "fruit", "veg", "broccoli", "mushroom", "avocado", "herb", "kale", "courgette", "cabbage"],
+  "Dairy & Eggs": ["milk", "cheese", "yog", "butter", "cream", "egg", "margarine"],
+  "Meat & Fish": ["chicken", "beef", "pork", "lamb", "mince", "sausage", "bacon", "ham", "turkey", "fish", "salmon", "tuna", "prawn", "steak", "meat"],
+  "Bakery": ["bread", "bagel", "croissant", "cake", "baguette", "pastry", "muffin", "tortilla", "wrap", "pitta", "bun"],
+  "Frozen": ["frozen", "ice cream", "ice-cream", "pizza"],
+  "Drinks": ["water", "juice", "cola", "coke", "soda", "squash", "tea", "coffee", "wine", "beer", "lager", "lemonade", "smoothie", "drink"],
+  "Snacks": ["crisp", "chocolate", "biscuit", "cookie", "sweet", "candy", "snack", "nuts", "popcorn", "cracker"],
+  "Pantry": ["rice", "pasta", "flour", "sugar", "salt", "oil", "sauce", "beans", "tin", "cereal", "oats", "spice", "stock", "vinegar", "honey", "jam", "noodle", "lentil"],
+  "Household": ["toilet roll", "kitchen roll", "bin bag", "cleaner", "bleach", "washing up", "washing-up", "detergent", "sponge", "foil", "cling film", "battery", "bulb", "dishwasher"],
+  "Toiletries": ["shampoo", "soap", "toothpaste", "toothbrush", "deodorant", "razor", "shower gel", "conditioner", "tissue", "cotton", "sanitary", "tampon", "nappy", "diaper", "wipe", "lotion", "toilet paper"],
+};
+
+// Flattened, length-sorted keyword list so specific phrases match first.
+const CATEGORY_LOOKUP = Object.entries(CATEGORY_KEYWORDS)
+  .flatMap(([category, words]) => words.map((word) => ({ word, category })))
+  .sort((a, b) => b.word.length - a.word.length);
+
+function categorize(name) {
+  const n = (name || "").toLowerCase();
+  for (const { word, category } of CATEGORY_LOOKUP) {
+    if (n.includes(word)) return category;
+  }
+  return "Other";
+}
+
+// Common household staples for one-tap adding.
+const STAPLES = ["Milk", "Bread", "Eggs", "Butter", "Cheese", "Bananas", "Chicken", "Rice", "Pasta", "Toilet roll", "Washing up liquid", "Coffee", "Tea", "Cereal"];
+
+function makeShoppingItem(name, extra = {}) {
+  return {
+    id: uid(),
+    name,
+    qty: 1,
+    category: categorize(name),
+    estPrice: null,
+    checked: false,
+    checkedBy: null,
+    checkedAt: null,
+    matchedPrice: null,
+    ...extra,
+  };
+}
+
 function rollForward(dateStr, repeat) {
   const d = new Date(dateStr + "T00:00:00");
   if (repeat === "weekly") d.setDate(d.getDate() + 7);
@@ -202,7 +266,14 @@ function migrate(raw) {
   data.members = Array.isArray(data.members)
     ? data.members.map((m) => (typeof m === "string" ? { id: uid(), name: m, pin: null } : m))
     : [];
-  data.shoppingList = Array.isArray(data.shoppingList) ? data.shoppingList : [];
+  data.shoppingList = Array.isArray(data.shoppingList)
+    ? data.shoppingList.map((i) => ({
+        qty: i.qty ?? 1,
+        category: i.category ?? categorize(i.name),
+        estPrice: i.estPrice ?? null,
+        ...i,
+      }))
+    : [];
   data.todos = Array.isArray(data.todos) ? data.todos : [];
   data.receipts = Array.isArray(data.receipts) ? data.receipts : [];
   data.activity = Array.isArray(data.activity) ? data.activity : [];
@@ -675,40 +746,108 @@ function HomeTab({ data }) {
 
 /* ================================ Shopping tab ================================ */
 
-function ShoppingRow({ item, onToggle, onRemove }) {
+function QtyStepper({ qty, onSetQty }) {
+  const btn = {
+    width: 26,
+    height: 26,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 8,
+    color: COLORS.inkSoft,
+    background: COLORS.paper,
+  };
+  return (
+    <div className="flex items-center gap-1.5">
+      <button onClick={() => onSetQty(Math.max(1, qty - 1))} style={btn} aria-label="Decrease quantity">
+        <Minus size={14} />
+      </button>
+      <span className="text-sm" style={{ fontFamily: FONT_MONO, minWidth: 18, textAlign: "center" }}>
+        {qty}
+      </span>
+      <button onClick={() => onSetQty(qty + 1)} style={btn} aria-label="Increase quantity">
+        <Plus size={14} />
+      </button>
+    </div>
+  );
+}
+
+function ShoppingRow({ item, onToggle, onRemove, onSetQty, onSetPrice }) {
+  const commitPrice = (e) => {
+    const raw = e.target.value.trim();
+    if (raw === "") return onSetPrice(null);
+    const n = parseFloat(raw);
+    onSetPrice(Number.isFinite(n) ? n : null);
+  };
+
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-lg p-3"
+      className="flex flex-col gap-2 rounded-lg p-3"
       style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
     >
-      <button onClick={onToggle} className="flex items-center gap-3 flex-1 text-left">
-        <span
-          className="rounded flex items-center justify-center"
-          style={{
-            width: 20,
-            height: 20,
-            border: `2px solid ${item.checked ? COLORS.stamp : COLORS.inkFaint}`,
-            background: item.checked ? COLORS.stamp : "transparent",
-            flexShrink: 0,
-          }}
-        >
-          {item.checked && <Check size={14} color={COLORS.paper} />}
-        </span>
-        <span style={{ textDecoration: item.checked ? "line-through" : "none", color: item.checked ? COLORS.inkFaint : COLORS.ink }}>
-          {item.name}
-        </span>
-      </button>
-      <div className="flex items-center gap-2">
-        {item.checked && item.matchedPrice != null && (
-          <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.brass }}>
-            {fmtMoney(item.matchedPrice)}
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={onToggle} className="flex items-center gap-3 flex-1 text-left">
+          <span
+            className="rounded flex items-center justify-center"
+            style={{
+              width: 20,
+              height: 20,
+              border: `2px solid ${item.checked ? COLORS.stamp : COLORS.inkFaint}`,
+              background: item.checked ? COLORS.stamp : "transparent",
+              flexShrink: 0,
+            }}
+          >
+            {item.checked && <Check size={14} color={COLORS.paper} />}
           </span>
-        )}
-        {item.checked && <Stamp label="Got it" sub={item.checkedBy} />}
-        <button onClick={onRemove} style={{ color: COLORS.inkFaint }}>
-          <Trash2 size={16} />
+          <span style={{ textDecoration: item.checked ? "line-through" : "none", color: item.checked ? COLORS.inkFaint : COLORS.ink }}>
+            {item.name}
+            {item.qty > 1 && (
+              <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.brass, marginLeft: 6 }}>
+                ×{item.qty}
+              </span>
+            )}
+          </span>
         </button>
+        <div className="flex items-center gap-2">
+          {item.checked && item.matchedPrice != null && (
+            <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.brass }}>
+              {fmtMoney(item.matchedPrice * (item.qty || 1))}
+            </span>
+          )}
+          {item.checked && <Stamp label="Got it" sub={item.checkedBy} />}
+          <button onClick={onRemove} style={{ color: COLORS.inkFaint }}>
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
+
+      {!item.checked && (
+        <div className="flex items-center justify-between gap-2 pl-8">
+          <QtyStepper qty={item.qty || 1} onSetQty={onSetQty} />
+          <div
+            className="flex items-center gap-1 rounded-lg px-2"
+            style={{ border: `1px solid ${COLORS.border}`, height: 30 }}
+          >
+            <span className="text-sm" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
+              £
+            </span>
+            <input
+              key={item.id}
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              defaultValue={item.estPrice ?? ""}
+              onBlur={commitPrice}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              placeholder="0.00"
+              className="text-sm"
+              style={{ width: 56, background: "transparent", fontFamily: FONT_MONO, color: COLORS.ink }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -725,14 +864,26 @@ function ShoppingTab({ data, mutate, currentUser }) {
     if (!name) return;
     mutate((d) =>
       withActivity(
-        {
-          ...d,
-          shoppingList: [...d.shoppingList, { id: uid(), name, checked: false, checkedBy: null, checkedAt: null, matchedPrice: null }],
-        },
+        { ...d, shoppingList: [...d.shoppingList, makeShoppingItem(name)] },
         `${currentUser.name} added "${name}" to the shopping list`
       )
     );
     setNewItem("");
+  };
+
+  const addStaple = (name) => {
+    mutate((d) => {
+      const exists = d.shoppingList.some((i) => !i.checked && i.name.toLowerCase() === name.toLowerCase());
+      if (exists) return d;
+      return withActivity(
+        { ...d, shoppingList: [...d.shoppingList, makeShoppingItem(name)] },
+        `${currentUser.name} added "${name}" to the shopping list`
+      );
+    });
+  };
+
+  const updateItem = (id, patch) => {
+    mutate((d) => ({ ...d, shoppingList: d.shoppingList.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
   };
 
   const toggleItem = (item) => {
@@ -788,14 +939,12 @@ function ShoppingTab({ data, mutate, currentUser }) {
             addedCount++;
             shoppingList = [
               ...shoppingList,
-              {
-                id: uid(),
-                name: receiptItem.name,
+              makeShoppingItem(receiptItem.name, {
                 checked: true,
                 checkedBy: currentUser.name,
                 checkedAt: Date.now(),
                 matchedPrice: receiptItem.price ?? null,
-              },
+              }),
             ];
           }
         }
@@ -832,6 +981,29 @@ function ShoppingTab({ data, mutate, currentUser }) {
   const unchecked = data.shoppingList.filter((i) => !i.checked);
   const checked = data.shoppingList.filter((i) => i.checked);
 
+  // Budget summary for the remaining (unchecked) list
+  const remainingCount = unchecked.reduce((s, i) => s + (i.qty || 1), 0);
+  const estTotal = unchecked.reduce((s, i) => s + (i.estPrice != null ? i.estPrice * (i.qty || 1) : 0), 0);
+  const unpricedCount = unchecked.filter((i) => i.estPrice == null).length;
+
+  // Group the remaining list by category, keeping the defined display order
+  const grouped = SHOPPING_CATEGORIES.map((cat) => ({
+    cat,
+    items: unchecked.filter((i) => (i.category || "Other") === cat),
+  })).filter((g) => g.items.length > 0);
+  const showCategoryHeaders = grouped.length > 1;
+
+  const renderRow = (item) => (
+    <ShoppingRow
+      key={item.id}
+      item={item}
+      onToggle={() => toggleItem(item)}
+      onRemove={() => removeItem(item)}
+      onSetQty={(qty) => updateItem(item.id, { qty })}
+      onSetPrice={(estPrice) => updateItem(item.id, { estPrice })}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex gap-2">
@@ -846,6 +1018,25 @@ function ShoppingTab({ data, mutate, currentUser }) {
         <button onClick={addItem} className="rounded-lg px-3" style={{ background: COLORS.ink, color: COLORS.paper }}>
           <Plus size={18} />
         </button>
+      </div>
+
+      {/* Quick-add staples */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs uppercase" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint, letterSpacing: "0.05em" }}>
+          Quick add
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {STAPLES.map((name) => (
+            <button
+              key={name}
+              onClick={() => addStaple(name)}
+              className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs"
+              style={{ background: COLORS.brassSoft, color: COLORS.brass, border: `1px solid ${COLORS.border}`, fontFamily: FONT_MONO }}
+            >
+              <Plus size={11} /> {name}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -886,18 +1077,56 @@ function ShoppingTab({ data, mutate, currentUser }) {
         </div>
       )}
 
+      {/* Budget summary */}
+      {unchecked.length > 0 && (
+        <div
+          className="rounded-xl p-4 flex items-center justify-between"
+          style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
+        >
+          <div className="flex flex-col">
+            <span className="text-xs uppercase" style={{ fontFamily: FONT_MONO, color: COLORS.inkSoft, letterSpacing: "0.05em" }}>
+              To buy
+            </span>
+            <span className="text-2xl font-semibold" style={{ fontFamily: FONT_DISPLAY, color: COLORS.ink }}>
+              {remainingCount} item{remainingCount === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-xs uppercase" style={{ fontFamily: FONT_MONO, color: COLORS.inkSoft, letterSpacing: "0.05em" }}>
+              Est. total
+            </span>
+            <span className="text-2xl font-semibold" style={{ fontFamily: FONT_DISPLAY, color: COLORS.brass }}>
+              {fmtMoney(estTotal)}
+            </span>
+            {unpricedCount > 0 && (
+              <span className="text-xs" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
+                {unpricedCount} unpriced
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Remaining items, grouped by category */}
       <div className="flex flex-col gap-2">
-        {unchecked.map((item) => (
-          <ShoppingRow key={item.id} item={item} onToggle={() => toggleItem(item)} onRemove={() => removeItem(item)} />
+        {grouped.map((group) => (
+          <div key={group.cat} className="flex flex-col gap-2">
+            {showCategoryHeaders && (
+              <div className="text-xs uppercase mt-1" style={{ fontFamily: FONT_MONO, color: COLORS.brass, letterSpacing: "0.05em" }}>
+                {group.cat}
+              </div>
+            )}
+            {group.items.map(renderRow)}
+          </div>
         ))}
+
         {checked.length > 0 && (
           <div className="text-xs uppercase mt-2" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
             Done
           </div>
         )}
-        {checked.map((item) => (
-          <ShoppingRow key={item.id} item={item} onToggle={() => toggleItem(item)} onRemove={() => removeItem(item)} />
-        ))}
+        {checked.map(renderRow)}
+
         {data.shoppingList.length === 0 && <EmptyState text="Shopping list is empty." />}
       </div>
     </div>
