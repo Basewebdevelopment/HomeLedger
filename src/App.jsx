@@ -193,19 +193,33 @@ function migrate(raw) {
 
 async function loadData() {
   try {
+    const res = await fetch("/api/data");
+    if (res.ok) {
+      const raw = await res.json();
+      const data = migrate(raw);
+      // Keep localStorage in sync as an offline cache
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
+      return data;
+    }
+  } catch (_) {}
+  // Fall back to localStorage if the API is unreachable
+  try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return migrate(raw ? JSON.parse(raw) : null);
-  } catch (e) {
+  } catch (_) {
     return migrate(null);
   }
 }
 
 function persistData(data) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    // swallow — keep the UI responsive even if storage is full
-  }
+  // Write to localStorage immediately for snappy UI
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
+  // Persist to database in the background
+  fetch("/api/data", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }).catch(() => {});
 }
 
 function withActivity(data, text) {
