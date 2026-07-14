@@ -25,6 +25,7 @@ import {
   AlertCircle,
   BookOpen,
   Package,
+  Search,
 } from "lucide-react";
 
 /* ================================ design tokens ================================ */
@@ -550,6 +551,42 @@ function EmptyState({ text }) {
 
 const inputStyle = { border: `1px solid ${COLORS.border}`, background: COLORS.paper };
 
+// Search field + a single filter-toggle pill, shared by list-heavy tabs.
+function ListControls({ query, onQuery, placeholder, toggleLabel, toggleActive, onToggle }) {
+  return (
+    <div className="flex gap-2">
+      <div className="flex-1 flex items-center gap-2 rounded-lg px-3" style={{ ...inputStyle, height: 38 }}>
+        <Search size={15} style={{ color: COLORS.inkFaint, flexShrink: 0 }} />
+        <input
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 text-sm"
+          style={{ background: "transparent", color: COLORS.ink }}
+        />
+        {query && (
+          <button onClick={() => onQuery("")} aria-label="Clear search">
+            <X size={14} style={{ color: COLORS.inkFaint }} />
+          </button>
+        )}
+      </div>
+      <button
+        onClick={onToggle}
+        className="rounded-lg px-3 text-xs whitespace-nowrap"
+        style={{
+          fontFamily: FONT_MONO,
+          background: toggleActive ? COLORS.brass : COLORS.brassSoft,
+          color: toggleActive ? COLORS.paper : COLORS.brass,
+          border: `1px solid ${COLORS.border}`,
+          fontWeight: toggleActive ? 700 : 400,
+        }}
+      >
+        {toggleLabel}
+      </button>
+    </div>
+  );
+}
+
 /* ================================ login gate ================================ */
 
 function LoginGate({ members, onLogin, onAddMember, onRemoveMember }) {
@@ -812,6 +849,8 @@ function PantryStatusControl({ status, onSet }) {
 
 function PantryTab({ data, mutate, currentUser }) {
   const [newItem, setNewItem] = useState("");
+  const [search, setSearch] = useState("");
+  const [needsOnly, setNeedsOnly] = useState(false);
 
   const addItem = (rawName) => {
     const name = (rawName ?? newItem).trim();
@@ -842,11 +881,19 @@ function PantryTab({ data, mutate, currentUser }) {
 
   const needCount = data.pantry.filter(pantryNeedsBuying).length;
 
+  const q = search.trim().toLowerCase();
+  const visible = data.pantry.filter((p) => {
+    if (needsOnly && !pantryNeedsBuying(p)) return false;
+    if (q && !p.name.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
   const grouped = SHOPPING_CATEGORIES.map((cat) => ({
     cat,
-    items: data.pantry.filter((p) => (p.category || "Other") === cat),
+    items: visible.filter((p) => (p.category || "Other") === cat),
   })).filter((g) => g.items.length > 0);
   const showCategoryHeaders = grouped.length > 1;
+  const showControls = data.pantry.length > 5;
 
   return (
     <div className="flex flex-col gap-4">
@@ -907,6 +954,17 @@ function PantryTab({ data, mutate, currentUser }) {
         </div>
       )}
 
+      {showControls && (
+        <ListControls
+          query={search}
+          onQuery={setSearch}
+          placeholder="Search pantry..."
+          toggleLabel="Need to buy"
+          toggleActive={needsOnly}
+          onToggle={() => setNeedsOnly((v) => !v)}
+        />
+      )}
+
       <div className="flex flex-col gap-2">
         {grouped.map((group) => (
           <div key={group.cat} className="flex flex-col gap-2">
@@ -938,6 +996,7 @@ function PantryTab({ data, mutate, currentUser }) {
           </div>
         ))}
         {data.pantry.length === 0 && <EmptyState text="Your pantry is empty — add what you keep at home." />}
+        {data.pantry.length > 0 && visible.length === 0 && <EmptyState text="No items match." />}
       </div>
     </div>
   );
@@ -1056,6 +1115,8 @@ function ShoppingTab({ data, mutate, currentUser }) {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
+  const [search, setSearch] = useState("");
+  const [hideDone, setHideDone] = useState(false);
   const fileInputRef = useRef(null);
 
   const addItem = () => {
@@ -1179,7 +1240,7 @@ function ShoppingTab({ data, mutate, currentUser }) {
         if (restockedCount > 0) parts.push(`${restockedCount} restocked`);
         const summary = parts.length ? parts.join(", ") : "no items";
         return withActivity(
-          { ...d, shoppingList, pantry, receipts: [...d.receipts, receiptEntry] },
+          { ...d, shoppingList, pantry, receipts: [...d.receipts, receiptEntry].slice(-100) },
           `${currentUser.name} scanned a receipt from ${receiptEntry.store} (${summary})`
         );
       });
@@ -1202,15 +1263,23 @@ function ShoppingTab({ data, mutate, currentUser }) {
   // Pantry items that are low/out flow into the shopping list automatically
   const pantryNeeds = data.pantry.filter(pantryNeedsBuying);
 
-  // Budget summary for the remaining (unchecked) list
+  // Budget summary reflects the full remaining list (not the filtered view)
   const remainingCount = unchecked.reduce((s, i) => s + (i.qty || 1), 0);
   const estTotal = unchecked.reduce((s, i) => s + (i.estPrice != null ? i.estPrice * (i.qty || 1) : 0), 0);
   const unpricedCount = unchecked.filter((i) => i.estPrice == null).length;
 
+  // Search / filter
+  const q = search.trim().toLowerCase();
+  const matchesQuery = (name) => !q || name.toLowerCase().includes(q);
+  const pantryNeedsView = pantryNeeds.filter((p) => matchesQuery(p.name));
+  const uncheckedView = unchecked.filter((i) => matchesQuery(i.name));
+  const checkedView = hideDone ? [] : checked.filter((i) => matchesQuery(i.name));
+  const showControls = pantryNeeds.length + data.shoppingList.length > 5;
+
   // Group the remaining list by category, keeping the defined display order
   const grouped = SHOPPING_CATEGORIES.map((cat) => ({
     cat,
-    items: unchecked.filter((i) => (i.category || "Other") === cat),
+    items: uncheckedView.filter((i) => (i.category || "Other") === cat),
   })).filter((g) => g.items.length > 0);
   const showCategoryHeaders = grouped.length > 1;
 
@@ -1328,13 +1397,24 @@ function ShoppingTab({ data, mutate, currentUser }) {
         </div>
       )}
 
+      {showControls && (
+        <ListControls
+          query={search}
+          onQuery={setSearch}
+          placeholder="Search list..."
+          toggleLabel="Hide done"
+          toggleActive={hideDone}
+          onToggle={() => setHideDone((v) => !v)}
+        />
+      )}
+
       {/* Auto list from the pantry (low / out items) */}
-      {pantryNeeds.length > 0 && (
+      {pantryNeedsView.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="text-xs uppercase mt-1 flex items-center gap-1.5" style={{ fontFamily: FONT_MONO, color: COLORS.stamp, letterSpacing: "0.05em" }}>
             <Package size={13} /> Need at home
           </div>
-          {pantryNeeds.map((item) => (
+          {pantryNeedsView.map((item) => (
             <div
               key={item.id}
               className="flex items-center justify-between gap-2 rounded-lg p-3"
@@ -1360,7 +1440,7 @@ function ShoppingTab({ data, mutate, currentUser }) {
 
       {/* Remaining items, grouped by category */}
       <div className="flex flex-col gap-2">
-        {grouped.length > 0 && pantryNeeds.length > 0 && (
+        {grouped.length > 0 && pantryNeedsView.length > 0 && (
           <div className="text-xs uppercase mt-1" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint, letterSpacing: "0.05em" }}>
             Extras
           </div>
@@ -1376,16 +1456,20 @@ function ShoppingTab({ data, mutate, currentUser }) {
           </div>
         ))}
 
-        {checked.length > 0 && (
+        {checkedView.length > 0 && (
           <div className="text-xs uppercase mt-2" style={{ fontFamily: FONT_MONO, color: COLORS.inkFaint }}>
             Done
           </div>
         )}
-        {checked.map(renderRow)}
+        {checkedView.map(renderRow)}
 
         {data.shoppingList.length === 0 && pantryNeeds.length === 0 && (
           <EmptyState text="Nothing to buy — mark pantry items Low or Out and they'll show up here." />
         )}
+        {(data.shoppingList.length > 0 || pantryNeeds.length > 0) &&
+          pantryNeedsView.length === 0 &&
+          grouped.length === 0 &&
+          checkedView.length === 0 && <EmptyState text="No items match." />}
       </div>
     </div>
   );
