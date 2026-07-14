@@ -191,13 +191,37 @@ function migrate(raw) {
   return data;
 }
 
+async function loadMembers() {
+  try {
+    const res = await fetch("/api/members");
+    if (res.ok) return await res.json();
+  } catch (_) {}
+  return [];
+}
+
+function saveMember(member) {
+  fetch("/api/members", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(member),
+  }).catch(() => {});
+}
+
+function deleteMember(id) {
+  fetch(`/api/members/${id}`, { method: "DELETE" }).catch(() => {});
+}
+
 async function loadData() {
   try {
-    const res = await fetch("/api/data");
-    if (res.ok) {
-      const raw = await res.json();
+    const [dataRes, members] = await Promise.all([
+      fetch("/api/data"),
+      loadMembers(),
+    ]);
+    if (dataRes.ok) {
+      const raw = await dataRes.json();
       const data = migrate(raw);
-      // Keep localStorage in sync as an offline cache
+      // Members always come from the dedicated table
+      data.members = members;
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
       return data;
     }
@@ -214,11 +238,11 @@ async function loadData() {
 function persistData(data) {
   // Write to localStorage immediately for snappy UI
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
-  // Persist to database in the background
+  // Persist household data to DB (members handled separately via their own API)
   fetch("/api/data", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, members: [] }), // members live in their own table
   }).catch(() => {});
 }
 
@@ -1652,8 +1676,14 @@ export default function HouseholdLedger() {
         <LoginGate
           members={data.members}
           onLogin={setCurrentUser}
-          onAddMember={(m) => mutate((d) => withActivity({ ...d, members: [...d.members, m] }, `${m.name} joined the household`))}
-          onRemoveMember={(id) => mutate((d) => withActivity({ ...d, members: d.members.filter((m) => m.id !== id) }, `A member left the household`))}
+          onAddMember={(m) => {
+            saveMember(m);
+            mutate((d) => withActivity({ ...d, members: [...d.members, m] }, `${m.name} joined the household`));
+          }}
+          onRemoveMember={(id) => {
+            deleteMember(id);
+            mutate((d) => withActivity({ ...d, members: d.members.filter((m) => m.id !== id) }, `A member left the household`));
+          }}
         />
       </>
     );

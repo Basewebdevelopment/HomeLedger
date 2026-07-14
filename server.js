@@ -16,13 +16,21 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Ensure the table exists on startup
+// Ensure tables exist on startup
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS household_data (
       key  TEXT PRIMARY KEY,
       data JSONB NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS members (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      pin        TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
   console.log("Database ready.");
@@ -59,6 +67,47 @@ app.post("/api/data", async (req, res) => {
   } catch (err) {
     console.error("POST /api/data error:", err);
     res.status(500).json({ error: "Failed to save data." });
+  }
+});
+
+/* ── Members API ───────────────────────────────────────────────────────── */
+
+app.get("/api/members", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, name, pin FROM members ORDER BY created_at ASC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /api/members error:", err);
+    res.status(500).json({ error: "Failed to load members." });
+  }
+});
+
+app.post("/api/members", async (req, res) => {
+  const { id, name, pin } = req.body;
+  if (!id || !name) return res.status(400).json({ error: "id and name are required." });
+  try {
+    await pool.query(
+      `INSERT INTO members (id, name, pin)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET name = $2, pin = $3`,
+      [id, name, pin ?? null]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /api/members error:", err);
+    res.status(500).json({ error: "Failed to save member." });
+  }
+});
+
+app.delete("/api/members/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM members WHERE id = $1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("DELETE /api/members error:", err);
+    res.status(500).json({ error: "Failed to remove member." });
   }
 });
 
