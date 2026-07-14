@@ -26,6 +26,10 @@ import {
   BookOpen,
   Package,
   Search,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Copy,
 } from "lucide-react";
 
 /* ================================ design tokens ================================ */
@@ -64,6 +68,7 @@ const TABS = [
   { id: "cleaning", label: "Cleaning", icon: Sparkles },
   { id: "todo", label: "To-do", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: CalendarIcon },
+  { id: "vault", label: "Vault", icon: KeyRound },
 ];
 
 const FREQUENCY_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30 };
@@ -251,7 +256,7 @@ function eventIconFor(title) {
 /* ================================ data model ================================ */
 
 function emptyData() {
-  return { members: [], pantry: [], shoppingList: [], cleaningTasks: [], todos: [], events: [], receipts: [], activity: [] };
+  return { members: [], pantry: [], shoppingList: [], cleaningTasks: [], todos: [], events: [], receipts: [], activity: [], vault: { salt: null, check: null, entries: [] } };
 }
 
 function seedCleaningTasks() {
@@ -321,6 +326,13 @@ function migrate(raw) {
 
   data.events = Array.isArray(data.events) ? data.events : [];
   if (isFirstRun && data.events.length === 0) data.events = seedEvents();
+
+  const v = data.vault && typeof data.vault === "object" ? data.vault : {};
+  data.vault = {
+    salt: v.salt ?? null,
+    check: v.check ?? null,
+    entries: Array.isArray(v.entries) ? v.entries : [],
+  };
 
   return data;
 }
@@ -483,6 +495,52 @@ function buildSnapshot(data) {
     cleaningTasks: data.cleaningTasks.map((t) => t.name),
     todosOpen: data.todos.filter((t) => !t.done).map((t) => t.text),
   };
+}
+
+/* ================================ vault crypto ================================ */
+
+// All password encryption happens in the browser. The server/DB only ever sees
+// ciphertext. Uses PBKDF2 (SHA-256) to derive an AES-GCM key from the passphrase.
+
+const VAULT_CHECK_TOKEN = "homeledger-vault-ok";
+const PBKDF2_ITERATIONS = 150000;
+
+function bytesToB64(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+function b64ToBytes(str) {
+  const bin = atob(str);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+async function deriveVaultKey(passphrase, saltBytes) {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey("raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: saltBytes, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptJSON(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder();
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(JSON.stringify(obj)));
+  return { iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)) };
+}
+
+async function decryptJSON(key, payload) {
+  const dec = new TextDecoder();
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(payload.iv) }, key, b64ToBytes(payload.ct));
+  return JSON.parse(dec.decode(pt));
 }
 
 /* ================================ shared UI bits ================================ */
@@ -1917,6 +1975,312 @@ function CalendarTab({ data, mutate, currentUser }) {
   );
 }
 
+/* ================================ Vault tab ================================ */
+
+function VaultEntryRow({ entry, revealed, onToggleReveal, onCopy, copied, onRemove }) {
+  return (
+    <div
+      className="rounded-lg p-3 flex flex-col gap-1"
+      style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium" style={{ fontFamily: FONT_DISPLAY, color: COLORS.ink }}>
+          {entry.label}
+        </span>
+        <button onClick={onRemove} style={{ color: COLORS.inkFaint }} aria-label="Delete entry">
+          <Trash2 size={16} />
+        </button>
+      </div>
+      {entry.username && (
+        <div className="flex items-center gap-2 text-sm" style={{ color: COLORS.inkSoft }}>
+          <User size={13} style={{ color: COLORS.inkFaint }} />
+          <span style={{ fontFamily: FONT_MONO }}>{entry.username}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-2 text-sm">
+        <Lock size={13} style={{ color: COLORS.inkFaint }} />
+        <span className="flex-1" style={{ fontFamily: FONT_MONO, color: COLORS.ink }}>
+          {revealed ? entry.password : "••••••••••"}
+        </span>
+        <button onClick={onToggleReveal} style={{ color: COLORS.inkFaint }} aria-label="Reveal password">
+          {revealed ? <EyeOff size={15} /> : <Eye size={15} />}
+        </button>
+        <button onClick={onCopy} style={{ color: copied ? COLORS.success : COLORS.brass }} aria-label="Copy password">
+          {copied ? <Check size={15} /> : <Copy size={15} />}
+        </button>
+      </div>
+      {entry.notes && (
+        <p className="text-xs mt-1" style={{ color: COLORS.inkFaint }}>
+          {entry.notes}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function VaultTab({ data, mutate, currentUser }) {
+  const isSetUp = !!(data.vault.salt && data.vault.check);
+
+  const [cryptoKey, setCryptoKey] = useState(null);
+  const [entries, setEntries] = useState(null); // decrypted, in-memory only
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  // passphrase inputs
+  const [pass, setPass] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  // add-entry form
+  const [showAdd, setShowAdd] = useState(false);
+  const [fLabel, setFLabel] = useState("");
+  const [fUser, setFUser] = useState("");
+  const [fPass, setFPass] = useState("");
+  const [fNotes, setFNotes] = useState("");
+
+  const [revealed, setRevealed] = useState({});
+  const [copiedId, setCopiedId] = useState(null);
+
+  const unlocked = cryptoKey !== null;
+
+  const setupVault = async () => {
+    setError("");
+    if (pass.length < 6) return setError("Use at least 6 characters.");
+    if (pass !== confirm) return setError("Passphrases don't match.");
+    setBusy(true);
+    try {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const key = await deriveVaultKey(pass, salt);
+      const check = await encryptJSON(key, VAULT_CHECK_TOKEN);
+      mutate((d) =>
+        withActivity(
+          { ...d, vault: { salt: bytesToB64(salt), check, entries: [] } },
+          `${currentUser.name} set up the password vault`
+        )
+      );
+      setCryptoKey(key);
+      setEntries([]);
+      setPass("");
+      setConfirm("");
+    } catch (e) {
+      setError("Couldn't set up the vault.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unlockVault = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const salt = b64ToBytes(data.vault.salt);
+      const key = await deriveVaultKey(pass, salt);
+      let token;
+      try {
+        token = await decryptJSON(key, data.vault.check);
+      } catch (_) {
+        token = null;
+      }
+      if (token !== VAULT_CHECK_TOKEN) {
+        setError("Wrong passphrase.");
+        setBusy(false);
+        return;
+      }
+      const decrypted = [];
+      for (const e of data.vault.entries) {
+        try {
+          const obj = await decryptJSON(key, e);
+          decrypted.push({ id: e.id, updatedAt: e.updatedAt, ...obj });
+        } catch (_) {
+          /* skip anything that won't decrypt */
+        }
+      }
+      setCryptoKey(key);
+      setEntries(decrypted);
+      setPass("");
+    } catch (e) {
+      setError("Couldn't unlock the vault.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lockVault = () => {
+    setCryptoKey(null);
+    setEntries(null);
+    setRevealed({});
+    setShowAdd(false);
+  };
+
+  const addEntry = async () => {
+    const label = fLabel.trim();
+    if (!label || !fPass) return;
+    setBusy(true);
+    try {
+      const payload = { label, username: fUser.trim(), password: fPass, notes: fNotes.trim() };
+      const enc = await encryptJSON(cryptoKey, payload);
+      const id = uid();
+      const updatedAt = Date.now();
+      mutate((d) =>
+        withActivity(
+          { ...d, vault: { ...d.vault, entries: [...d.vault.entries, { id, updatedAt, ...enc }] } },
+          `${currentUser.name} saved a password for "${label}"`
+        )
+      );
+      setEntries((prev) => [...(prev || []), { id, updatedAt, ...payload }]);
+      setFLabel("");
+      setFUser("");
+      setFPass("");
+      setFNotes("");
+      setShowAdd(false);
+    } catch (e) {
+      setError("Couldn't save that entry.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeEntry = (id, label) => {
+    mutate((d) =>
+      withActivity(
+        { ...d, vault: { ...d.vault, entries: d.vault.entries.filter((e) => e.id !== id) } },
+        `${currentUser.name} removed the password for "${label}"`
+      )
+    );
+    setEntries((prev) => (prev || []).filter((e) => e.id !== id));
+  };
+
+  const copyPassword = async (entry) => {
+    try {
+      await navigator.clipboard.writeText(entry.password);
+      setCopiedId(entry.id);
+      setTimeout(() => setCopiedId((c) => (c === entry.id ? null : c)), 1500);
+    } catch (_) {
+      /* clipboard blocked — ignore */
+    }
+  };
+
+  const submitPass = () => (isSetUp ? unlockVault() : setupVault());
+
+  // ---- Setup / unlock screen ----
+  if (!unlocked) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div
+          className="rounded-2xl p-6 flex flex-col gap-4"
+          style={{ background: COLORS.paper, boxShadow: CARD_SHADOW, border: `1px solid ${COLORS.border}` }}
+        >
+          <div className="flex flex-col items-center gap-2 text-center">
+            <span className="rounded-full flex items-center justify-center" style={{ width: 48, height: 48, background: COLORS.brassSoft }}>
+              <KeyRound size={22} style={{ color: COLORS.brass }} />
+            </span>
+            <h2 className="text-lg font-semibold" style={{ fontFamily: FONT_DISPLAY, color: COLORS.ink }}>
+              {isSetUp ? "Unlock the vault" : "Set up your vault"}
+            </h2>
+            <p className="text-sm" style={{ color: COLORS.inkSoft }}>
+              {isSetUp
+                ? "Enter the household master passphrase."
+                : "Choose a master passphrase. Passwords are encrypted with it before saving — the database never sees them."}
+            </p>
+          </div>
+
+          <input
+            type="password"
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && isSetUp && submitPass()}
+            placeholder="Master passphrase"
+            className="rounded-lg px-3 py-2 text-sm"
+            style={{ ...inputStyle, fontFamily: FONT_MONO }}
+            autoFocus
+          />
+          {!isSetUp && (
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitPass()}
+              placeholder="Confirm passphrase"
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ ...inputStyle, fontFamily: FONT_MONO }}
+            />
+          )}
+
+          {error && (
+            <p className="text-xs text-center" style={{ color: COLORS.stamp }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            onClick={submitPass}
+            disabled={busy}
+            className="rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2"
+            style={{ background: COLORS.ink, color: COLORS.paper }}
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Lock size={15} />}
+            {isSetUp ? "Unlock" : "Create vault"}
+          </button>
+
+          {!isSetUp && (
+            <p className="text-xs text-center" style={{ color: COLORS.inkFaint }}>
+              If everyone forgets this passphrase, the saved passwords can't be recovered. Don't store banking or primary-email passwords here.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Unlocked vault ----
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <button
+          onClick={() => setShowAdd((s) => !s)}
+          className="flex-1 rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2"
+          style={{ background: COLORS.ink, color: COLORS.paper }}
+        >
+          <Plus size={16} /> Add password
+        </button>
+        <button
+          onClick={lockVault}
+          className="rounded-lg px-3 py-2 text-sm flex items-center gap-2"
+          style={{ border: `1px solid ${COLORS.border}`, color: COLORS.inkSoft }}
+        >
+          <Lock size={15} /> Lock
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="rounded-lg p-3 flex flex-col gap-2" style={{ background: COLORS.paper, border: `1px solid ${COLORS.border}` }}>
+          <input value={fLabel} onChange={(e) => setFLabel(e.target.value)} placeholder="Label (e.g. WiFi, Netflix)" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} autoFocus />
+          <input value={fUser} onChange={(e) => setFUser(e.target.value)} placeholder="Username / email (optional)" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+          <input value={fPass} onChange={(e) => setFPass(e.target.value)} placeholder="Password" className="rounded-lg px-3 py-2 text-sm" style={{ ...inputStyle, fontFamily: FONT_MONO }} />
+          <textarea value={fNotes} onChange={(e) => setFNotes(e.target.value)} placeholder="Notes (optional)" rows={2} className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+          <button onClick={addEntry} disabled={busy} className="rounded-lg px-3 py-2 text-sm" style={{ background: COLORS.brass, color: COLORS.paper }}>
+            {busy ? "Saving..." : "Save"}
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {entries.map((entry) => (
+          <VaultEntryRow
+            key={entry.id}
+            entry={entry}
+            revealed={!!revealed[entry.id]}
+            onToggleReveal={() => setRevealed((r) => ({ ...r, [entry.id]: !r[entry.id] }))}
+            onCopy={() => copyPassword(entry)}
+            copied={copiedId === entry.id}
+            onRemove={() => removeEntry(entry.id, entry.label)}
+          />
+        ))}
+        {entries.length === 0 && <EmptyState text="No passwords saved yet." />}
+      </div>
+    </div>
+  );
+}
+
 /* ================================ Voice control ================================ */
 
 function VoiceModal({ data, mutate, currentUser, setActiveTab, onClose }) {
@@ -2226,6 +2590,7 @@ function MainApp({ data, mutate, currentUser, activeTab, setActiveTab, onLogout 
         {activeTab === "cleaning" && <CleaningTab data={data} mutate={mutate} currentUser={currentUser} />}
         {activeTab === "todo" && <TodoTab data={data} mutate={mutate} currentUser={currentUser} />}
         {activeTab === "calendar" && <CalendarTab data={data} mutate={mutate} currentUser={currentUser} />}
+        {activeTab === "vault" && <VaultTab data={data} mutate={mutate} currentUser={currentUser} />}
       </main>
 
       <VoiceFab data={data} mutate={mutate} currentUser={currentUser} setActiveTab={setActiveTab} />
